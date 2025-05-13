@@ -1,3 +1,6 @@
+const express = require("express");
+const cron = require("node-cron");
+const axios = require("axios");
 require("dotenv").config();
 const {
   Client,
@@ -11,6 +14,15 @@ const {
   ButtonStyle,
   Events,
 } = require("discord.js");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => res.send("Bot is alive!"));
+
+app.listen(PORT, () => {
+  console.log(`🌐 Web server rodando na porta ${PORT}`);
+});
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
@@ -193,3 +205,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+const SELF_URL = "https://cr-bot-iz1x.onrender.com";
+
+cron.schedule("*/14 * * * *", async () => {
+  try {
+    await axios.get(SELF_URL);
+    console.log("🔁 Self-ping enviado");
+  } catch (error) {
+    console.error("❌ Erro ao enviar self-ping:", error.message);
+  }
+});
