@@ -72,8 +72,26 @@ function criarBotoes(status, autorId, responsavelId = null) {
   } else if (status === "em_andamento") {
     row.addComponents(
       new ButtonBuilder()
-        .setCustomId(`pronto-${autorId}-${responsavelId}`)
-        .setLabel("Finalizar CR")
+        .setCustomId(`solicitar_alteracoes-${autorId}-${responsavelId}`)
+        .setLabel("Solicitar alterações")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`aprovado-${autorId}-${responsavelId}`)
+        .setLabel("Aprovar CR")
+        .setStyle(ButtonStyle.Success)
+    );
+  } else if (status === "revisado") {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`revisar_novamente-${autorId}-${responsavelId}`)
+        .setLabel("Solicitar nova revisão")
+        .setStyle(ButtonStyle.Primary)
+    );
+  } else if (status === "aprovado") {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`finalizado-${autorId}-${responsavelId}`)
+        .setLabel("Finalizar")
         .setStyle(ButtonStyle.Success)
     );
   }
@@ -85,7 +103,9 @@ function gerarMensagem({ task, autorId, link, status, responsavelId = null }) {
   const statusTexto = {
     aguardando: "🕒 **Aguardando responsável**",
     em_andamento: `🛠️ **Em andamento por** <@${responsavelId}>`,
-    pronto: `✅ **Finalizado por** <@${responsavelId}>`,
+    revisado: `✏️ **Revisado com comentários por** <@${responsavelId}>`,
+    aprovado: `✅ **Aprovado por** <@${responsavelId}>`,
+    pronto: `🎉 **Finalizado por** <@${autorId}>`,
   };
 
   return [
@@ -99,8 +119,14 @@ function gerarMensagem({ task, autorId, link, status, responsavelId = null }) {
     status === "aguardando"
       ? `Caso deseje revisar, clique em **Assumir CR**.`
       : status === "em_andamento"
-      ? `Responsável pode clicar em **Finalizar CR** ao concluir.`
-      : `CR concluído.`,
+      ? `Responsável pode **solicitar alterações** ou **aprovar CR** ao concluir.`
+      : status === "revisado"
+      ? `Autor pode **solicitar nova revisão** ao finalizar as alterações solicitadas.`
+      : status === "aprovado"
+      ? `Caso tenha realizado o merge, por favor, clique em **Finalizar**.`
+      : status === "pronto"
+      ? `CR concluído.`
+      : "",
   ].join("\n");
 }
 
@@ -169,13 +195,96 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await msg.thread?.send(`<@${responsavel.id}> assumiu este CR.`);
     }
 
-    if (acao === "pronto") {
-      if (interaction.user.id !== responsavelId) {
+    if (acao === "solicitar_alteracoes") {
+      if (interaction.user.id !== responsavelId)
         return interaction.reply({
-          content: "Apenas quem assumiu o CR pode marcá-lo como pronto.",
+          content: "Apenas o responsável pode solicitar alteracoes.",
           ephemeral: true,
         });
+
+      const mensagemAtualizada = gerarMensagem({
+        task,
+        autorId,
+        link,
+        status: "revisado",
+        responsavelId,
+      });
+
+      await interaction.update({
+        content: mensagemAtualizada,
+        components: [criarBotoes("revisado", autorId, responsavelId)],
+      });
+
+      await msg.thread?.send(
+        `<@${autorId}>, o código foi revisado e contém comentários. Realize os ajustes e clique em **Solicitar nova revisão**.`
+      );
+
+      const poRole = interaction.guild.roles.cache.find((r) => r.name === "PO");
+      if (poRole) {
+        await msg.thread?.send(
+          `<@&${poRole.id}> o CR foi revisado e precisa de ajustes.`
+        );
       }
+    }
+
+    if (acao === "revisar_novamente") {
+      const novoResponsavelId = interaction.user.id;
+      const mensagemAtualizada = gerarMensagem({
+        task,
+        autorId,
+        link,
+        status: "em_andamento",
+        responsavelId: novoResponsavelId,
+      });
+
+      await interaction.update({
+        content: mensagemAtualizada,
+        components: [criarBotoes("em_andamento", autorId, novoResponsavelId)],
+      });
+
+      await msg.thread?.send(
+        `<@${novoResponsavelId}> retomou a revisão do código.`
+      );
+    }
+
+    if (acao === "aprovado") {
+      if (interaction.user.id !== responsavelId)
+        return interaction.reply({
+          content: "Apenas o responsável pode aprovar.",
+          ephemeral: true,
+        });
+
+      const mensagemAtualizada = gerarMensagem({
+        task,
+        autorId,
+        link,
+        status: "aprovado",
+        responsavelId,
+      });
+
+      await interaction.update({
+        content: mensagemAtualizada,
+        components: [criarBotoes("aprovado", autorId, responsavelId)],
+      });
+
+      await msg.thread?.send(
+        `<@${autorId}>, o código foi aprovado. Faça o merge e depois clique em **Finalizar**.`
+      );
+
+      const poRole = interaction.guild.roles.cache.find((r) => r.name === "PO");
+      if (poRole) {
+        await msg.thread?.send(
+          `<@&${poRole.id}> o CR foi aprovado e aguarda merge.`
+        );
+      }
+    }
+
+    if (acao === "finalizado") {
+      if (interaction.user.id !== autorId)
+        return interaction.reply({
+          content: "Apenas o autor pode finalizar.",
+          ephemeral: true,
+        });
 
       const mensagemAtualizada = gerarMensagem({
         task,
@@ -190,15 +299,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         components: [],
       });
 
-      await msg.thread?.send(`CR finalizado por <@${responsavelId}>.`);
-
-      await msg.thread?.send(
-        `<@${autorId}>, o CR foi finalizado. Olhe o link do card ou pull request para validá-lo.`
-      );
+      await msg.thread?.send(`✅ CR finalizado após merge por <@${autorId}>.`);
 
       const poRole = interaction.guild.roles.cache.find((r) => r.name === "PO");
       if (poRole) {
-        await msg.thread?.send(`<@&${poRole.id}> o CR já foi finalizado.`);
+        await msg.thread?.send(
+          `<@&${poRole.id}> o CR foi finalizado e mergeado.`
+        );
       }
     }
   }
