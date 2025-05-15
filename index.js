@@ -228,23 +228,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (acao === "revisar_novamente") {
-      const novoResponsavelId = interaction.user.id;
+      if (interaction.user.id !== autorId)
+        return interaction.reply({
+          content: "Apenas o autor do PR pode solicitar nova revisão.",
+          ephemeral: true,
+        });
+
       const mensagemAtualizada = gerarMensagem({
         task,
         autorId,
         link,
         status: "em_andamento",
-        responsavelId: novoResponsavelId,
+        responsavelId,
       });
 
       await interaction.update({
         content: mensagemAtualizada,
-        components: [criarBotoes("em_andamento", autorId, novoResponsavelId)],
+        components: [criarBotoes("em_andamento", autorId, responsavelId)],
       });
 
-      await msg.thread?.send(
-        `<@${novoResponsavelId}> retomou a revisão do código.`
-      );
+      await msg.thread?.send(`<@${autorId}> solicitou nova revisão do código.`);
     }
 
     if (acao === "aprovado") {
