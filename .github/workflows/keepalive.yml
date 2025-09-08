@@ -1,0 +1,25 @@
+name: Keep production alive
+
+on:
+  schedule:
+    # GitHub Actions supports a minimum reliable frequency of ~5 minutes.
+    # We'll run every 5 minutes and inside the job ping 3 times with 2-minute sleeps
+    # to approximate a ping every ~2 minutes.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ping server every ~2 minutes (3x)
+        run: |
+          for i in 1 2 3; do
+            echo "[$(date -u)] Ping $i to https://cr-bot-iz1x.onrender.com/"
+            # Quiet output, 10s timeout, ignore failures so the workflow doesn't fail on sporadic errors
+            curl -sS -m 10 -o /dev/null -w "HTTP %{http_code}\n" https://cr-bot-iz1x.onrender.com/ || true
+            if [ "$i" -lt 3 ]; then
+              sleep 120
+            fi
+          done
